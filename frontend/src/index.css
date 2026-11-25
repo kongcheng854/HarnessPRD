@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {font-family:Inter,"Microsoft YaHei",sans-serif;color:#1c3446;background:#f6f8fa;font-size:15px}
+* {box-sizing:border-box}
+header {height:70px;background:white;border-bottom:1px solid #d9e3e9;display:flex;align-items:center;gap:24px;padding:0 5vw}
+.brand,.logo,.tools,.workspace,.status,.options,.file,.composer,.disclosure,button,footer {display:flex;align-items:center}
+.brand {font-size:21px;font-weight:750;letter-spacing:-.8px}
+.brand>span:last-child {color:#0878a4}
+.logo {justify-content:center;background:#0b658c;border-radius:9px;color:white;width:37px;height:37px;margin-right:10px}
+.workspace {border-left:1px solid #cbd8df;padding-left:23px;font-size:14px;color:#597080}
+.layout {max-width:940px;margin:0 auto;padding:28px 32px 48px}
+aside {margin-bottom:32px;padding-bottom:20px;border-bottom:1px solid #d5e0e7}
+aside h2,.eyebrow {font-size:13px;font-weight:650;color:#557180}
+aside h2 {position:absolute;clip-path:inset(50%);width:1px;height:1px;overflow:hidden}
+aside ol {display:flex;align-items:center;justify-content:space-between}
+aside li {display:flex;align-items:center;gap:9px;color:#647986;font-weight:550}
+aside li>span {z-index:1;background:#f6f8fa;border:1px solid #c3d0d9;display:grid;place-items:center;width:27px;height:27px;border-radius:50%;font-size:12px}
+aside li:not(:last-child) {flex:1}
+aside li:not(:last-child):after {content:'';flex:1;margin:0 14px 0 5px;border-top:1px solid #cedae1}
+aside .active,aside .complete {color:#09658a}
+aside .active>span {background:#0a709a;color:white;border-color:#0a709a}
+h1 {font-size:clamp(28px,4vw,39px);line-height:1.25;font-weight:750;letter-spacing:-1px;margin:8px 0 22px}
+h2 {font-weight:650}
+.lead {color:#5b7180;margin:-10px 0 24px}
+.panel {background:white;border:1px solid #d5e0e7;border-radius:16px;padding:clamp(18px,3vw,34px);box-shadow:0 5px 20px #26485f08}
+.field {margin-bottom:21px}
+label,legend {display:block;font-size:14px;font-weight:600;margin-bottom:7px}
+.required,.field small {color:#b64241}
+input:not([type=radio]),textarea,select {background:#fbfcfd;border:1px solid #bfced8;border-radius:7px;padding:10px 12px;width:100%;color:#172f41}
+textarea {resize:vertical}
+:focus-visible {outline:3px solid #6cbbe8;outline-offset:2px}
+.options,.tools,.composer,.file,footer {gap:12px}
+.options {flex-wrap:wrap}
+.options label {font-weight:400}
+button {gap:7px;justify-content:center;background:#fff;border:1px solid #c6d4dd;border-radius:7px;padding:8px 13px;font-weight:600;font-size:14px}
+button:hover {background:#f1f7fa}
+button.primary {@apply bg-primary-700 text-white border-primary-700;}
+button.primary:hover {@apply bg-primary-800;}
+button:disabled {opacity:.5;cursor:not-allowed}
+.disclosure {color:#076690;border:0;padding-left:0}
+footer {border-top:1px solid #e1e8ed;margin-top:24px;padding-top:20px;justify-content:flex-end}
+.alert {background:#fff5e9;border:1px solid #ebc89d;padding:12px;border-radius:8px;margin-bottom:16px}
+.thread {max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:15px}
+.bubble {align-self:flex-start;max-width:92%;padding:14px 17px;background:#f4f7f9;border-radius:12px;overflow-wrap:anywhere}
+.bubble strong,small,.status {font-size:12px;color:#557180}
+.bubble.user {align-self:flex-end;background:#eaf5fb}
+.bubble p,.preview {white-space:pre-wrap}
+.composer,.status {margin-top:12px}
+.composer button,.file button {flex-shrink:0}
+.tools {justify-content:space-between;margin-bottom:14px}
+.editor,.preview {min-height:340px;margin-bottom:18px}
+.preview {max-height:56vh;overflow:auto}
+.markdown {line-height:1.75;overflow-wrap:anywhere}
+.markdown h1,.markdown h2,.markdown h3 {margin:12px 0 6px;font-size:1.1em;font-weight:700}
+.markdown li {margin-left:22px;list-style:revert}
+.markdown pre {overflow:auto;background:#e9eff3;padding:9px}
+.file {padding:16px 0;border-bottom:1px solid #e0e8ed}
+.file svg {color:#177ca5}
+.file button {margin-left:auto}
+@media(max-width:760px){.layout{display:block;padding:22px 16px}aside h2{display:none}aside ol{display:flex;justify-content:space-between;gap:4px;margin:0 0 25px}aside li{padding:0;font-size:11px;flex-direction:column;gap:5px}aside li:after{display:none}.workspace{font-size:12px}.panel{padding:18px}.layout main{width:100%}}

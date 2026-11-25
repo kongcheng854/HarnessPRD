@@ -1,0 +1,51 @@
+{
+  "base_questions": [
+    {
+      "name": "product",
+      "label": "产品名称",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "purpose",
+      "label": "你想解决什么问题？",
+      "type": "textarea",
+      "required": true
+    },
+    {
+      "name": "audience",
+      "label": "目标用户",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "platform",
+      "label": "产品平台",
+      "type": "select",
+      "options": [
+        "Web 应用",
+        "移动端",
+        "桌面应用",
+        "跨平台",
+        "待确定"
+      ]
+    }
+  ],
+  "advanced_questions": [
+    {
+      "name": "stage",
+      "label": "当前阶段",
+      "type": "radio",
+      "options": [
+        "构思",
+        "原型",
+        "迭代"
+      ]
+    },
+    {
+      "name": "constraints",
+      "label": "时间、资源或技术约束",
+      "type": "textarea"
+    }
+  ]
+}
