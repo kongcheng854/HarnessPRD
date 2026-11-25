@@ -9,6 +9,21 @@ export interface QuestionsConfig {
   base_questions: QuestionConfig[]
   advanced_questions: QuestionConfig[]
 }
+export interface SchemaProperty {
+  title?: string
+  properties?: Record<string, SchemaProperty>
+  enum?: string[]
+  'x-control'?: 'input' | 'select' | 'textarea' | 'list' | 'features' | 'pages'
+  'x-placeholder'?: string
+  'x-section'?: string
+}
+export interface RequirementsSchema {
+  required: string[]
+  properties: Record<string, SchemaProperty>
+}
+export type RequirementsSummary = Record<string, unknown>
+export interface RagHit { source: string; title: string; content: string }
+export type PendingReview = { type: 'summary'; candidate: RequirementsSummary } | { type: 'references'; hits: RagHit[] }
 export type DocKind = 'prd' | 'api-docs' | 'prompts'
 export type ViewState = 'form' | 'chatting' | `generating-${DocKind}` | `review-${DocKind}` | 'done'
 export const STEPS = [
@@ -18,8 +33,11 @@ export const STEPS = [
 ] as const
 export interface Message { role: 'assistant' | 'user' | 'system'; content: string }
 export interface SessionData {
+  entryMode?: 'form' | 'prd'
   view: ViewState
   form: Record<string, string>
+  summary?: RequirementsSummary
+  review?: PendingReview
   messages: Message[]
   conversationId: string
   docs: Record<DocKind, string>

@@ -14,10 +14,23 @@ export function loadSession(): SessionData {
     if (!raw || typeof raw !== 'object') return initial
     if (raw.form && typeof raw.form === 'object') initial.form = Object.fromEntries(
       Object.entries(raw.form).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+    const form = initial.form
+    for (const [oldKey, key] of Object.entries({ product: 'product_name', purpose: 'product_goal', audience: 'target_users' })) {
+      if (oldKey in form && !(key in form)) form[key] = form[oldKey]
+    }
+    if (form.platform === 'Web 应用') form.platform = '网页应用'
+    if (form.platform === '移动端') form.platform = 'App'
     if (typeof raw.conversationId !== 'string' || !raw.conversationId || !Array.isArray(raw.messages)
       || !raw.messages.length || !raw.messages.every((m: {role?: string; content?: string}) =>
         m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')) return initial
     initial.messages = raw.messages
+    if (raw.summary && typeof raw.summary === 'object' && !Array.isArray(raw.summary)) initial.summary = raw.summary
+    else {
+      try {
+        const first = JSON.parse(initial.messages[0].content)
+        if (first && typeof first.product_name === 'string') initial.summary = first
+      } catch { /* 早期会话的首条消息是表单文本。 */ }
+    }
     initial.conversationId = raw.conversationId
     initial.view = 'chatting'
     for (const key of Object.keys(titles) as DocKind[]) {

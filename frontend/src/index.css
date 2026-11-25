@@ -26,6 +26,17 @@ h2 {font-weight:650}
 .lead {color:#5b7180;margin:-10px 0 24px}
 .panel {background:white;border:1px solid #d5e0e7;border-radius:16px;padding:clamp(18px,3vw,34px);box-shadow:0 5px 20px #26485f08}
 .field {margin-bottom:21px}
+.workspace-nav {display:flex;gap:8px;margin-left:auto}
+.session-link {color:#076690;font-weight:650;padding:8px}
+button[aria-pressed=true] {background:#eaf5fb;border-color:#5199b8}
+@media(max-width:700px){header:has(.workspace-nav){height:auto;padding:12px 16px;flex-wrap:wrap;gap:10px}.workspace-nav{flex-wrap:wrap}}
+.requirements-form details {border-bottom:1px solid #dce5eb}
+.requirements-form summary {padding:16px 0;cursor:pointer;font-size:17px;font-weight:650}
+.requirements-fields {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:0 18px;padding-top:7px}
+.requirements-fields .wide {grid-column:1/-1}
+.requirements-form [aria-invalid=true] {border-color:#b64241}
+.requirements-form footer {flex-wrap:wrap;border:0;padding-top:0}
+#requirements-json {margin-top:18px;background:#f2f6f8;border-radius:8px;padding:16px;max-height:420px;overflow:auto;font:13px/1.65 ui-monospace,Consolas,monospace}
 label,legend {display:block;font-size:14px;font-weight:600;margin-bottom:7px}
 .required,.field small {color:#b64241}
 input:not([type=radio]),textarea,select {background:#fbfcfd;border:1px solid #bfced8;border-radius:7px;padding:10px 12px;width:100%;color:#172f41}
@@ -52,6 +63,16 @@ footer {border-top:1px solid #e1e8ed;margin-top:24px;padding-top:20px;justify-co
 .tools {justify-content:space-between;margin-bottom:14px}
 .editor,.preview {min-height:340px;margin-bottom:18px}
 .preview {max-height:56vh;overflow:auto}
+.diff-scroll {overflow-x:auto}
+.diff-table {margin-top:12px;width:100%;font-size:14px}
+.diff-table th,.diff-table td {padding:9px;text-align:left;border-bottom:1px solid #dae4eb;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere}
+.diff-table [data-change] {white-space:nowrap;font-weight:650}
+.diff-table [data-change="新增"] {color:#137744}
+.diff-table [data-change="修改"] {color:#145caf}
+.diff-table [data-change="删除"] {color:#ab3333}
+.rag-hit {border-bottom:1px solid #dae4eb;padding:14px 0}
+.rag-hit h3 {font-weight:650}
+.rag-hit p {margin-top:6px}
 .markdown {line-height:1.75;overflow-wrap:anywhere}
 .markdown h1,.markdown h2,.markdown h3 {margin:12px 0 6px;font-size:1.1em;font-weight:700}
 .markdown li {margin-left:22px;list-style:revert}

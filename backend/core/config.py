@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173"
     host: str = "0.0.0.0"
     port: int = 8000
+    session_db_path: Path = CORE_DIR.parent / "sessions.sqlite3"
+    log_llm_metrics: bool = True
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
 
 settings = Settings()

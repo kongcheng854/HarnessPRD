@@ -15,6 +15,11 @@ class StartRequest(BaseModel):
     form_data: dict[str, str] = Field(min_length=1)
 
 
+class StructuredStartRequest(BaseModel):
+    requirements_summary: dict
+    system_prompt_override: Text | None = None
+
+
 class Transcript(BaseModel):
     messages: list[Message] = Field(min_length=1)
 
@@ -22,10 +27,33 @@ class Transcript(BaseModel):
 class ContinueRequest(Transcript):
     conversation_id: UUID
     message: Text
+    system_prompt_override: Text | None = None
+
+
+class SummarySyncRequest(Transcript):
+    requirements_summary: dict
+
+
+class PrdRequest(Transcript):
+    requirements_summary: dict | None = None
 
 
 class DocumentRequest(BaseModel):
     prd: Text
+
+
+class RagHit(BaseModel):
+    source: Text
+    title: Text
+    content: Text
+
+
+class RetrievalRequest(DocumentRequest):
+    messages: list[Message]
+
+
+class ApiDocsRequest(DocumentRequest):
+    rag_hits: list[RagHit] = Field(default_factory=list)
 
 
 class OptimizeRequest(BaseModel):
