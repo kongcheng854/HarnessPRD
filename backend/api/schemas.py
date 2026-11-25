@@ -1,7 +1,7 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints, model_validator
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
@@ -73,3 +73,45 @@ class Question(BaseModel):
 class QuestionsConfig(BaseModel):
     base_questions: list[Question]
     advanced_questions: list[Question]
+
+
+class JobPayload(BaseModel):
+    requirements_summary: dict | None = None
+    conversation_messages: list[Message] = Field(default_factory=list)
+    prd_content: Text | None = None
+    api_docs_content: str = ""
+    rag_hits: list[RagHit] = Field(default_factory=list)
+
+
+class OptimizeJobPayload(BaseModel):
+    doc_type: Literal["prd", "api-docs", "prompts"]
+    current_content: Annotated[str, StringConstraints(min_length=1)]
+    instruction: Text
+    context: str = ""
+
+    def as_optimize_request(self):
+        instruction = self.instruction
+        if self.context.strip():
+            instruction += "\n\n以下为参考资料，仅用于理解待优化文档：\n" + self.context
+        return OptimizeRequest(document_type=self.doc_type, content=self.current_content, instruction=instruction)
+
+
+class CreateJobRequest(BaseModel):
+    session_id: Text
+    artifact: Literal["prd", "api-docs", "prompts", "optimize-prd", "optimize-api-docs", "optimize-prompts"]
+    payload: OptimizeJobPayload | JobPayload
+
+    @model_validator(mode="after")
+    def check_inputs(self):
+        if self.artifact.startswith("optimize-"):
+            if (not isinstance(self.payload, OptimizeJobPayload) or not self.payload.current_content.strip()
+                    or self.payload.doc_type != self.artifact.removeprefix("optimize-")):
+                raise ValueError("优化任务需要对应的 doc_type、原文和修改意见")
+            return self
+        if not isinstance(self.payload, JobPayload):
+            raise ValueError("生成任务需要生成资料")
+        if self.artifact == "prd" and self.payload.requirements_summary is None:
+            raise ValueError("PRD 任务需要 requirements_summary")
+        if self.artifact != "prd" and not self.payload.prd_content:
+            raise ValueError("生成任务需要 prd_content")
+        return self

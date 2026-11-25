@@ -11,15 +11,20 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     __package__ = "backend"
 
-from .api import config, conversation, session
+from .api import config, conversation, jobs, session
 from .core.config import settings
 from .core.session_repository import initialize
 from .middleware.request_id import RequestIdMiddleware
+from .services import job_runner, job_service
 
 @asynccontextmanager
 async def lifespan(app):
     initialize()
-    yield
+    job_service.recover_interrupted()
+    try:
+        yield
+    finally:
+        await job_runner.shutdown()
 
 
 app = FastAPI(title="HarnessPRD", lifespan=lifespan)
@@ -30,6 +35,7 @@ app.add_middleware(RequestIdMiddleware)
 app.include_router(conversation.router)
 app.include_router(config.router)
 app.include_router(session.router)
+app.include_router(jobs.router)
 
 
 @app.exception_handler(Exception)

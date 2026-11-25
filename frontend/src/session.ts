@@ -24,6 +24,7 @@ export function loadSession(): SessionData {
       || !raw.messages.length || !raw.messages.every((m: {role?: string; content?: string}) =>
         m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')) return initial
     initial.messages = raw.messages
+    if (['ok', 'warn', 'exceed'].includes(raw.contextUsage?.level)) initial.contextUsage = raw.contextUsage
     if (raw.summary && typeof raw.summary === 'object' && !Array.isArray(raw.summary)) initial.summary = raw.summary
     else {
       try {

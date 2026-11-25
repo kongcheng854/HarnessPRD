@@ -7,8 +7,10 @@ import { downloadFile, emptySession, loadSession, saveSession } from './session'
 import AppV2, { CLARIFICATION_SYSTEM_PROMPT } from './AppV2'
 import SummaryDiffPanel from './components/SummaryDiffPanel'
 import ChatInput from './components/ChatInput'
+import ClarificationWarnBanner from './components/ClarificationWarnBanner'
 import MessageList from './components/MessageList'
 import DocumentReview from './components/DocumentReview'
+import type { useGenerationJob } from './hooks/useGenerationJob'
 
 const kinds: DocKind[] = ['prd', 'api-docs', 'prompts']
 type Review = { type: 'loading'; label: string } | PendingReview
@@ -22,6 +24,7 @@ export default function App() {
 }
 
 interface WorkspaceActions {
+  jobs: ReturnType<typeof useGenerationJob>
   ensureSaved: () => Promise<boolean>
   leave: (destination: 'list' | 'new') => Promise<void>
 }
@@ -89,7 +92,8 @@ export function Workbench({ session, setSession, actions, saveError }: {
       const result = typeof input === 'string' ? await api.continueConversationStream(conversationId, messages, input, chunk, CLARIFICATION_SYSTEM_PROMPT)
         : await api.startSummaryStream(input, chunk, CLARIFICATION_SYSTEM_PROMPT)
       if (!result.conversation_id || !result.messages?.length) throw new Error('对话记录接收不完整，请重试。')
-      patch({ conversationId: result.conversation_id, messages: result.messages, summary: typeof input === 'string' ? session.summary : input })
+      patch({ conversationId: result.conversation_id, messages: result.messages, contextUsage: result.context_usage,
+        summary: typeof input === 'string' ? session.summary : input })
     }, () => patch({ view: typeof input === 'string' ? 'chatting' : 'form' }))
   }
   function prepareDocument(key: DocKind) {
@@ -105,6 +109,17 @@ export function Workbench({ session, setSession, actions, saveError }: {
     }, () => setReview(null))
   }
   function generate(key: DocKind, instruction?: string, approved?: Extract<Review, {type: 'summary' | 'references'}>) {
+    if (actions) return run(async () => {
+      if (instruction) {
+        if (!docs[key].trim()) throw new Error('请先填写需要优化的正文。')
+        const context = key === 'prompts' ? [docs.prd, docs['api-docs']].filter(Boolean).join('\n\n')
+          : key === 'api-docs' ? docs.prd : ''
+        await actions.jobs.startOptimize(key, docs[key], instruction, context)
+      } else if (key === 'prd' && approved?.type === 'summary') await actions.jobs.startPrd(approved.candidate)
+      else if (key === 'api-docs' && approved?.type === 'references') await actions.jobs.startApiDocs(docs.prd, approved.hits)
+      else if (key === 'prompts') await actions.jobs.startPrompts(docs.prd, docs['api-docs'])
+      else throw new Error('请先确认生成资料。')
+    }, () => {})
     return run(async () => {
       setReview(null)
       patch({ view: `generating-${key}`, summary: approved?.type === 'summary' ? approved.candidate : session.summary })
@@ -120,6 +135,9 @@ export function Workbench({ session, setSession, actions, saveError }: {
     }, () => patch({ view: `review-${key}` }))
   }
   const next = kind && kinds[kinds.indexOf(kind) + 1]
+  const jobs = actions?.jobs
+  const documentBusy = busy || Boolean(jobs?.isJobRunning)
+  const optimizationError = kind && !documentBusy ? session.optimizationErrors?.[kind] : undefined
   const heading = kind ? titles[kind] : view === 'done' ? '文档已就绪' : view === 'chatting' ? '需求访谈' : '描述你的产品'
   return <div className="app">
     <header><div className="brand"><span className="logo"><Layers3 size={21}/></span>Harness<span>PRD</span></div>
@@ -135,6 +153,8 @@ export function Workbench({ session, setSession, actions, saveError }: {
     <main><div className="eyebrow">{String(session.summary?.product_name || form.product_name || '新建项目')}</div><h1>{heading}</h1>
     {view === 'form' && <p className="lead">{session.entryMode === 'prd' ? '粘贴已有的 Markdown PRD，继续审核并生成接口文档。' : '填写产品构想，AI 产品经理将据此与你梳理需求。'}</p>}
     {error && <div className="alert" role="alert">{error}</div>}
+    {jobs?.error && <div className="alert" role="alert">{jobs.error}</div>}
+    {optimizationError && <div className="alert" role="alert">{optimizationError.message}（请求 ID {optimizationError.request_id}）</div>}
     {saveError && <div className="alert" role="status">浏览器无法保存本次进度，请在关闭前下载文档。</div>}
     {view === 'form' && actions && <div className="flex gap-2 mb-4">
       <button disabled={busy} aria-pressed={session.entryMode !== 'prd'} onClick={() => patch({entryMode: 'form'})}>填写产品需求</button>
@@ -158,13 +178,18 @@ export function Workbench({ session, setSession, actions, saveError }: {
     </section>}
     {!review && view === 'chatting' && <section className="panel"><MessageList messages={pending ? [...messages, { role: 'user', content: pending }] : messages} streaming={streaming}/>
       {busy && <small className="status" role="status"><LoaderCircle className="animate-spin" size={14}/> 正在回复</small>}
+      <ClarificationWarnBanner usage={session.contextUsage}/>
       <ChatInput disabled={busy} onSend={chat}/>
       {!busy && messages.some(m => m.role === 'assistant') && <footer><button className="primary" onClick={() => prepareDocument('prd')}>生成 PRD <ArrowRight size={16}/></button></footer>}
     </section>}
-    {!review && kind && <DocumentReview key={kind} title={titles[kind]} content={docs[kind]} streaming={streaming} busy={busy}
+    {!review && kind && <DocumentReview key={kind} title={titles[kind]} content={docs[kind]}
+      streaming={jobs?.isJobRunning ? jobs.streamingContent : streaming} busy={documentBusy}
+      optimizing={jobs?.isOptimizingJob} reconnecting={jobs?.reconnecting}
+      progress={jobs?.isJobRunning && !jobs.isOptimizingJob ? {phase:jobs.phase, seconds:jobs.seconds, reconnecting:jobs.reconnecting, artifact:kind} : undefined}
+      metrics={!documentBusy ? session.runSummaries?.[kind] : null}
       onEdit={content => edit(kind, content)} onOptimize={instruction => generate(kind, instruction)} actions={<>
-        {!docs[kind].trim() && <button disabled={busy} onClick={() => prepareDocument(kind)}>重新生成</button>}
-        <button className="primary" disabled={busy || !docs[kind].trim()} onClick={() => next ? prepareDocument(next) : patch({ view: 'done' })}>
+        {!docs[kind].trim() && <button disabled={documentBusy} onClick={() => prepareDocument(kind)}>重新生成</button>}
+        <button className="primary" disabled={documentBusy || !docs[kind].trim()} onClick={() => next ? prepareDocument(next) : patch({ view: 'done' })}>
           {next ? '生成' + titles[next] : '完成并下载'} <ArrowRight size={16}/></button></>}/>}
     {view === 'done' && <section className="panel">{kinds.map(k => <div className="file" key={k}><FileText/>
       <div><h2>{titles[k]}</h2><small>{k}.md</small></div><button onClick={() => downloadFile(k + '.md', docs[k])}><Download size={16}/>下载</button></div>)}

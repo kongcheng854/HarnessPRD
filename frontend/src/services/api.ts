@@ -1,5 +1,6 @@
 import axios from 'axios'
-import type { DocKind, Message, QuestionsConfig, RagHit, RequirementsSchema, RequirementsSummary } from '../types'
+import { sseData } from '../utils/sse'
+import type { ContextUsage, DocKind, Message, QuestionsConfig, RagHit, RequirementsSchema, RequirementsSummary } from '../types'
 
 const base = '/api/conversation'
 const http = axios.create({ baseURL: base })
@@ -11,7 +12,7 @@ export async function getRequirementsSchema(): Promise<RequirementsSchema> {
   return (await http.get<RequirementsSchema>('/requirements-schema')).data
 }
 
-interface Done { type: 'done'; messages?: Message[]; conversation_id?: string }
+interface Done { type: 'done'; messages?: Message[]; conversation_id?: string; context_usage?: ContextUsage }
 type OnChunk = (text: string) => void
 
 export async function readStream(path: string, body: unknown, onChunk: OnChunk): Promise<Done> {
@@ -24,29 +25,13 @@ export async function readStream(path: string, body: unknown, onChunk: OnChunk):
     throw new Error(typeof error.detail === 'string' ? error.detail : '请检查表单字段后重试。')
   }
   if (!response.ok || !response.body) throw new Error('请求失败（HTTP ' + response.status + '），请检查后端后重试。')
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  try {
-    while (true) {
-      const { value, done } = await reader.read()
-      buffer += decoder.decode(value, { stream: !done })
-      const blocks = buffer.split(/\r?\n\r?\n/)
-      buffer = blocks.pop() ?? ''
-      for (const block of blocks) {
-        const data = block.split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n')
-        if (!data) continue
-        const event = JSON.parse(data)
-        if (event.type === 'chunk') onChunk(event.content)
-        else if (event.type === 'done') return event
-        else if (event.type === 'error') throw new Error(event.message)
-      }
-      if (done) throw new Error('连接中断，请重试。')
-    }
-  } finally {
-    await reader.cancel().catch(() => undefined)
-    reader.releaseLock()
+  for await (const data of sseData(response)) {
+    const event = JSON.parse(data)
+    if (event.type === 'chunk') onChunk(event.content)
+    else if (event.type === 'done') return event
+    else if (event.type === 'error') throw new Error(event.message)
   }
+  throw new Error('连接中断，请重试。')
 }
 export const startConversationStream = (form_data: Record<string, string>, cb: OnChunk) =>
   readStream('/start-stream', { form_data }, cb)

@@ -4,7 +4,7 @@ from contextlib import aclosing
 from dataclasses import asdict
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..core.questions import questions
 from ..core import request_context
@@ -13,6 +13,7 @@ from ..services.conversation_service import conversation_service
 from ..services.document_service import SkillArtifactError, document_service
 from ..services.llm_factory import MissingKeyError
 from ..services.llm_metrics import RunMetricsCollector
+from ..services.token_estimator import BudgetExceededError
 from .schemas import (ApiDocsRequest, ContinueRequest, DocumentRequest, OptimizeRequest,
                       PrdRequest, QuestionsConfig, RagHit, RetrievalRequest, StartRequest,
                       StructuredStartRequest, SummarySyncRequest)
@@ -44,6 +45,8 @@ def _make_sse_generator(events, run_type):
                             run.revision_applied = event.get("revision_applied")
                             break
                         yield _frame(event)
+            except BudgetExceededError as exc:
+                terminal = {"type": "error", "code": exc.code, "message": str(exc), "budget": asdict(exc.check)}
             except Exception as exc:
                 message = str(exc) if isinstance(exc, (MissingKeyError, SkillArtifactError)) else "模型请求失败，请检查服务连接、模型名称和密钥后重试。"
                 terminal = {"type": "error", "message": message}
@@ -51,7 +54,11 @@ def _make_sse_generator(events, run_type):
         if terminal is not None:
             if terminal["type"] == "error":
                 terminal["request_id"] = request_context.request_id.get()
+            elif run_type in ("chat_start", "chat_continue") and run.budget is not None:
+                terminal["context_usage"] = run.budget.context_usage()
             yield _frame(terminal)
+            if terminal.get("code") == BudgetExceededError.code:
+                yield "data: [DONE]\n\n"
     return _RunStreamingResponse(frames(), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
@@ -90,6 +97,9 @@ async def sync_summary(request: SummarySyncRequest):
     try:
         with RunMetricsCollector.start("summary_sync") as run:
             summary = await document_service.sync_summary_from_conversation(request.requirements_summary, request.messages)
+    except BudgetExceededError as exc:
+        return JSONResponse(status_code=422, content={"code": exc.code, "detail": str(exc), "budget": asdict(exc.check),
+                                                     "request_id": request_context.request_id.get()})
     except MissingKeyError as exc:
         raise HTTPException(503, str(exc)) from exc
     except ValueError as exc:

@@ -1,3 +1,5 @@
+import type {JobFailure, RunSummary} from './job'
+
 export interface QuestionConfig {
   name: string
   label: string
@@ -32,7 +34,17 @@ export const STEPS = [
   { id: 'review-prompts', label: '提示词' },
 ] as const
 export interface Message { role: 'assistant' | 'user' | 'system'; content: string }
+export interface ContextUsage {
+  estimated_input_tokens: number
+  budget_tokens: number
+  ratio: number
+  level: 'ok' | 'warn' | 'exceed'
+}
 export interface SessionData {
+  activeJobId?: string | null
+  runSummaries?: Partial<Record<DocKind, RunSummary>>
+  optimizationErrors?: Partial<Record<DocKind, JobFailure>>
+  prdReviewResult?: Record<string, unknown> | null
   entryMode?: 'form' | 'prd'
   view: ViewState
   form: Record<string, string>
@@ -40,6 +52,7 @@ export interface SessionData {
   review?: PendingReview
   messages: Message[]
   conversationId: string
+  contextUsage?: ContextUsage
   docs: Record<DocKind, string>
 }
 export const titles: Record<DocKind, string> = { prd: '产品需求文档', 'api-docs': '接口文档', prompts: '开发提示词' }
