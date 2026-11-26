@@ -4,7 +4,12 @@ import { Copy, WandSparkles } from 'lucide-react'
 import type { JobPhase, RunSummary } from '../types/job'
 import type { DocKind } from '../types'
 
-interface Props {
+export interface DocumentReviewProps {
+  versionPanel?: ReactNode
+  previewLabel?: string
+  locked?: boolean
+  onRestore?: () => void
+  restoring?: boolean
   progress?: {phase:JobPhase; seconds:number; reconnecting:boolean; artifact:DocKind}
   metrics?: RunSummary | null
   optimizing?: boolean
@@ -13,16 +18,19 @@ interface Props {
   onEdit: (text: string) => void; onOptimize: (instruction: string) => Promise<boolean>
 }
 const phaseNames = {writing:'起草',reviewing:'审查',rewriting:'改写',generating:'生成',done:'完成'}
-export default function DocumentReview({ title, content, streaming, busy, actions, onEdit, onOptimize, progress, metrics, optimizing, reconnecting }: Props) {
+export default function DocumentReview({ title, content, streaming, busy, actions, onEdit, onOptimize, progress, metrics, optimizing, reconnecting,
+  versionPanel, previewLabel, locked, onRestore, restoring }: DocumentReviewProps) {
   const [instruction, setInstruction] = useState('')
   const [notice, setNotice] = useState('')
   async function copy() {
     try { await navigator.clipboard.writeText(content); setNotice('已复制') }
     catch { setNotice('请选中文档内容后手动复制') }
   }
-  return <section className="panel"><div className="tools"><h2>{optimizing ? '正在优化' : busy ? '正在生成' : '审核与编辑'}</h2>
+  const editor = <section className="panel"><div className="tools"><h2>{previewLabel ? '历史版本预览' : optimizing ? '正在优化' : busy ? '正在生成' : '审核与编辑'}</h2>
     <button disabled={busy || !content} onClick={copy}><Copy size={15}/>复制</button></div>
     {notice && <small role="status">{notice}</small>}
+    {previewLabel && <div className="preview-toolbar"><p role="status">{previewLabel}</p>
+      {onRestore && <button disabled={locked || busy} onClick={onRestore}>{restoring ? '恢复中…' : '恢复此版本'}</button>}</div>}
     {optimizing && reconnecting && <small role="status">正在重新连接优化任务…</small>}
     {progress && <div className="flex flex-wrap items-center gap-3 pb-4">
       <ol className="flex gap-3" aria-label="文档生成阶段">
@@ -38,11 +46,12 @@ export default function DocumentReview({ title, content, streaming, busy, action
       {metrics.total_input_tokens != null && metrics.total_output_tokens != null && ` · 输入 ${metrics.total_input_tokens} / 输出 ${metrics.total_output_tokens} Token`}
     </small>}
     {busy ? <div className="preview markdown"><Markdown>{streaming || '正在等待模型响应…'}</Markdown></div> :
-      <textarea className="editor" aria-label={title} value={content} onChange={e => onEdit(e.target.value)}/>}
-    <label htmlFor="instruction">修改意见</label><div className="composer"><input id="instruction" placeholder="例如，补充异常流程和验收标准" disabled={busy}
+      <textarea className="editor" aria-label={title} value={content} readOnly={!!previewLabel || locked} onChange={e => onEdit(e.target.value)}/>}
+    <label htmlFor="instruction">修改意见</label><div className="composer"><input id="instruction" placeholder="例如，补充异常流程和验收标准" disabled={busy || !!previewLabel || locked}
       value={instruction} onChange={e => setInstruction(e.target.value)}/>
-      <button disabled={busy || !instruction.trim() || !content.trim()} onClick={async () => {
+      <button disabled={busy || !!previewLabel || locked || !instruction.trim() || !content.trim()} onClick={async () => {
         if (await onOptimize(instruction.trim())) setInstruction('')
       }}><WandSparkles size={16}/>AI 优化</button></div>
-    <footer>{actions}</footer></section>
+    {!previewLabel && <footer inert={locked}>{actions}</footer>}</section>
+  return versionPanel ? <div className="version-layout">{editor}{versionPanel}</div> : editor
 }

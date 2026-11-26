@@ -1,4 +1,5 @@
 import type {JobFailure, RunSummary} from './job'
+import type {StructuredFormData} from './structuredForm'
 
 export interface QuestionConfig {
   name: string
@@ -27,6 +28,11 @@ export type RequirementsSummary = Record<string, unknown>
 export interface RagHit { source: string; title: string; content: string }
 export type PendingReview = { type: 'summary'; candidate: RequirementsSummary } | { type: 'references'; hits: RagHit[] }
 export type DocKind = 'prd' | 'api-docs' | 'prompts'
+export type EntryMode = 'structured' | 'prd' | 'prompts'
+export type FormSubView = 'chooser' | 'structured' | 'import-prd' | 'import-prompts'
+export const entryViews: Record<EntryMode | 'form', FormSubView> = {
+  structured: 'structured', form: 'structured', prd: 'import-prd', prompts: 'import-prompts',
+}
 export type ViewState = 'form' | 'chatting' | `generating-${DocKind}` | `review-${DocKind}` | 'done'
 export const STEPS = [
   { id: 'form', label: '描述产品' }, { id: 'chatting', label: 'AI 对话' },
@@ -45,9 +51,10 @@ export interface SessionData {
   runSummaries?: Partial<Record<DocKind, RunSummary>>
   optimizationErrors?: Partial<Record<DocKind, JobFailure>>
   prdReviewResult?: Record<string, unknown> | null
-  entryMode?: 'form' | 'prd'
+  entryMode?: EntryMode | 'form'
+  formSubView?: FormSubView
   view: ViewState
-  form: Record<string, string>
+  form: StructuredFormData
   summary?: RequirementsSummary
   review?: PendingReview
   messages: Message[]

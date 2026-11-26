@@ -1,8 +1,9 @@
 import { titles, type DocKind, type SessionData } from './types'
+import { normalizeFormData } from './utils/structuredFormTransform'
 
 export const SESSION_KEY = 'harnessprd.session.v1'
 export const emptySession = (): SessionData => ({
-  view: 'form', form: {}, messages: [], conversationId: '', docs: { prd: '', 'api-docs': '', prompts: '' },
+  view: 'form', form: normalizeFormData({}), messages: [], conversationId: '', docs: { prd: '', 'api-docs': '', prompts: '' },
 })
 export function saveSession(session: SessionData) {
   localStorage.setItem(SESSION_KEY, JSON.stringify(session))
@@ -12,14 +13,7 @@ export function loadSession(): SessionData {
   try {
     const raw = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null')
     if (!raw || typeof raw !== 'object') return initial
-    if (raw.form && typeof raw.form === 'object') initial.form = Object.fromEntries(
-      Object.entries(raw.form).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
-    const form = initial.form
-    for (const [oldKey, key] of Object.entries({ product: 'product_name', purpose: 'product_goal', audience: 'target_users' })) {
-      if (oldKey in form && !(key in form)) form[key] = form[oldKey]
-    }
-    if (form.platform === 'Web 应用') form.platform = '网页应用'
-    if (form.platform === '移动端') form.platform = 'App'
+    initial.form = normalizeFormData(raw.form)
     if (typeof raw.conversationId !== 'string' || !raw.conversationId || !Array.isArray(raw.messages)
       || !raw.messages.length || !raw.messages.every((m: {role?: string; content?: string}) =>
         m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')) return initial

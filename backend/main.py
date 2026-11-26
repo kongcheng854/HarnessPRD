@@ -11,7 +11,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     __package__ = "backend"
 
-from .api import config, conversation, jobs, session
+from .api import config, conversation, documents, jobs, session
 from .core.config import settings
 from .core.session_repository import initialize
 from .middleware.request_id import RequestIdMiddleware
@@ -29,12 +29,13 @@ async def lifespan(app):
 
 app = FastAPI(title="HarnessPRD", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in settings.cors_origins.split(",")],
-                   allow_methods=["GET", "POST", "DELETE"], allow_headers=["Content-Type", "X-Request-ID", "X-Session-ID"],
+                   allow_methods=["GET", "POST", "PATCH", "DELETE"], allow_headers=["Content-Type", "X-Request-ID", "X-Session-ID"],
                    expose_headers=["X-Request-ID"])
 app.add_middleware(RequestIdMiddleware)
 app.include_router(conversation.router)
 app.include_router(config.router)
 app.include_router(session.router)
+app.include_router(documents.router)
 app.include_router(jobs.router)
 
 
