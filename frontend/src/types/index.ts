@@ -1,6 +1,8 @@
 import type {JobFailure, RunSummary} from './job'
 import type {StructuredFormData} from './structuredForm'
 
+export type {StructuredFormData}
+
 export interface QuestionConfig {
   name: string
   label: string
@@ -25,8 +27,7 @@ export interface RequirementsSchema {
   properties: Record<string, SchemaProperty>
 }
 export type RequirementsSummary = Record<string, unknown>
-export interface RagHit { source: string; title: string; content: string }
-export type PendingReview = { type: 'summary'; candidate: RequirementsSummary } | { type: 'references'; hits: RagHit[] }
+export type PendingReview = { type: 'summary'; candidate: RequirementsSummary }
 export type DocKind = 'prd' | 'api-docs' | 'prompts'
 export type EntryMode = 'structured' | 'prd' | 'prompts'
 export type FormSubView = 'chooser' | 'structured' | 'import-prd' | 'import-prompts'
@@ -51,6 +52,10 @@ export interface SessionData {
   runSummaries?: Partial<Record<DocKind, RunSummary>>
   optimizationErrors?: Partial<Record<DocKind, JobFailure>>
   prdReviewResult?: Record<string, unknown> | null
+  prdBaselineConfirmed?: boolean
+  prdBaselineConfirmedAt?: string | null
+  prdBaselineVersionId?: string | null
+  prdBaselineVersionNo?: number | null
   entryMode?: EntryMode | 'form'
   formSubView?: FormSubView
   view: ViewState

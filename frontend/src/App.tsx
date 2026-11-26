@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import axios from 'axios'
-import { ArrowRight, Check, Download, FileText, Layers3, LoaderCircle } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Check, Download, FileText, Layers3, LoaderCircle } from 'lucide-react'
 import { STEPS, titles, entryViews, type EntryMode, type DocKind, type PendingReview, type RequirementsSchema, type RequirementsSummary, type SessionData, type ViewState } from './types'
 import * as api from './services/api'
 import { downloadFile, emptySession, loadSession, saveSession } from './session'
@@ -8,6 +8,7 @@ import AppV2, { CLARIFICATION_SYSTEM_PROMPT } from './AppV2'
 import SummaryDiffPanel from './components/SummaryDiffPanel'
 import ChatInput from './components/ChatInput'
 import ClarificationWarnBanner from './components/ClarificationWarnBanner'
+import ClarificationStage from './components/ClarificationStage'
 import MessageList from './components/MessageList'
 import DocumentReview, { type DocumentReviewProps } from './components/DocumentReview'
 import ProjectEntryChooser from './components/project-entry/ProjectEntryChooser'
@@ -16,6 +17,9 @@ import ImportPromptsPanel from './components/project-entry/ImportPromptsPanel'
 import type { useGenerationJob } from './hooks/useGenerationJob'
 import { summaryToFormData } from './utils/structuredFormTransform'
 import { buildArtifactNodes } from './utils/artifactProgress'
+import { assessClarificationState } from './utils/clarificationState'
+import { confirmGenerateDespiteClarificationWarnings } from './utils/clarificationConfirm'
+import { canPerformAction, unconfirmedBaseline } from './utils/deliveryStage'
 import ArtifactProgressBar from './components/ArtifactProgressBar'
 
 const kinds: DocKind[] = ['prd', 'api-docs', 'prompts']
@@ -54,6 +58,8 @@ export function Workbench({ session, setSession, actions, saveError }: {
   const [streaming, setStreaming] = useState('')
   const [pending, setPending] = useState('')
   const { view, docs, form, messages, conversationId } = session
+  const clarificationState = useMemo(() => assessClarificationState(messages), [messages])
+  const structuredClarification = session.entryMode === 'structured' || session.entryMode === 'form'
   const subView = actions ? session.formSubView ?? (session.entryMode ? entryViews[session.entryMode] : 'chooser') : 'structured'
   const kind = kinds.find(k => view === 'review-' + k || view === 'generating-' + k)
   const step = view === 'done' ? 5 : kind ? kinds.indexOf(kind) + 2 : view === 'chatting' ? 1 : 0
@@ -76,7 +82,10 @@ export function Workbench({ session, setSession, actions, saveError }: {
     patch({review: value && value.type !== 'loading' ? value : undefined})
   }
   function edit(key: DocKind, content: string) {
-    setSession(s => ({ ...s, docs: { ...s.docs, [key]: content } }))
+    setSession(s => ({
+      ...s, ...(actions && key === 'prd' && content !== s.docs.prd ? unconfirmedBaseline : {}),
+      docs: { ...s.docs, [key]: content },
+    }))
   }
   async function run(task: () => Promise<void>, recover: () => void) {
     if (lock.current) return false
@@ -113,18 +122,36 @@ export function Workbench({ session, setSession, actions, saveError }: {
     }, () => patch({ view: typeof input === 'string' ? 'chatting' : 'form' }))
   }
   function prepareDocument(key: DocKind) {
-    if (key === 'prompts') return generate(key)
+    if (key !== 'prd') return generate(key)
+    if (actions && structuredClarification) {
+      const delivery = canPerformAction('generate_prd', {requirementsSummary: session.summary})
+      if (!delivery.allowed) {
+        setError(delivery.reason)
+        return Promise.resolve(false)
+      }
+      if (!confirmGenerateDespiteClarificationWarnings(clarificationState)) return Promise.resolve(false)
+    }
     return run(async () => {
       if (key === 'prd') {
         setReview({type: 'loading', label: '正在核对访谈与需求摘要…'})
-        setReview({type: 'summary', candidate: await api.syncSummary(session.summary ?? {}, messages)})
+        const candidate = messages.length
+          ? await api.syncSummary(session.summary ?? {}, messages)
+          : session.summary ?? {}
+        setReview({type: 'summary', candidate})
       } else {
-        setReview({type: 'loading', label: '正在检索相关接口资料…'})
-        setReview({type: 'references', hits: await api.retrieveApiDocs(docs.prd, messages)})
+        generate(key)
       }
     }, () => setReview(null))
   }
-  function generate(key: DocKind, instruction?: string, approved?: Extract<Review, {type: 'summary' | 'references'}>) {
+  function generate(key: DocKind, instruction?: string, approved?: Extract<Review, {type: 'summary'}>) {
+    if (actions && !instruction) {
+      const delivery = key === 'prd' ? canPerformAction('generate_prd', {requirementsSummary: approved?.candidate})
+        : downstreamDelivery(key)
+      if (!delivery.allowed) {
+        setError(delivery.reason)
+        return Promise.resolve(false)
+      }
+    }
     if (actions) return run(async () => {
       if (instruction) {
         if (!docs[key].trim()) throw new Error('请先填写需要优化的正文。')
@@ -132,7 +159,7 @@ export function Workbench({ session, setSession, actions, saveError }: {
           : key === 'api-docs' ? docs.prd : ''
         await actions.jobs.startOptimize(key, docs[key], instruction, context)
       } else if (key === 'prd' && approved?.type === 'summary') await actions.jobs.startPrd(approved.candidate)
-      else if (key === 'api-docs' && approved?.type === 'references') await actions.jobs.startApiDocs(docs.prd, approved.hits)
+      else if (key === 'api-docs') await actions.jobs.startApiDocs(docs.prd)
       else if (key === 'prompts') await actions.jobs.startPrompts(docs.prd, docs['api-docs'])
       else throw new Error('请先确认生成资料。')
     }, () => {})
@@ -144,7 +171,7 @@ export function Workbench({ session, setSession, actions, saveError }: {
       const chunk = (part: string) => { content += part; setStreaming(content) }
       if (instruction) await api.optimizeDocumentStream(key, docs[key], instruction, chunk)
       else if (key === 'prd' && approved?.type === 'summary') await api.generatePrdStream(messages, chunk, approved.candidate)
-      else if (key === 'api-docs' && approved?.type === 'references') await api.generateApiDocsStream(docs.prd, chunk, approved.hits)
+      else if (key === 'api-docs') await api.generateApiDocsStream(docs.prd, chunk)
       else if (key === 'prompts') await api.generatePromptsStream(docs.prd, chunk)
       else throw new Error('请先确认生成资料。')
       if (!content.trim()) throw new Error('文档为空，请重试。')
@@ -154,6 +181,7 @@ export function Workbench({ session, setSession, actions, saveError }: {
   const next = kind && kinds[kinds.indexOf(kind) + 1]
   const jobs = actions?.jobs
   const documentBusy = busy || Boolean(jobs?.isJobRunning)
+  const clarificationActionLocked = documentBusy || Boolean(actions?.versionBusy)
   const optimizationError = kind && !documentBusy ? session.optimizationErrors?.[kind] : undefined
   function documentEditor(kind: DocKind, props: DocumentReviewProps) {
     return actions && view.startsWith('review-') ? actions.renderReview(kind, props) : <DocumentReview key={kind} {...props}/>
@@ -165,29 +193,49 @@ export function Workbench({ session, setSession, actions, saveError }: {
   function navigateTo(view: ViewState) {
     return run(async () => patch(view === 'form' ? {view, formSubView: session.entryMode ? entryViews[session.entryMode] : 'structured'} : {view}), () => {})
   }
+  function downstreamDelivery(doc: 'api-docs' | 'prompts') {
+    return canPerformAction(doc === 'api-docs' ? 'generate_api_docs' : 'generate_prompts', {
+      prdBaselineConfirmed: session.prdBaselineConfirmed, prdContent: docs.prd,
+    })
+  }
   function reviewActions(doc: DocKind) {
     if (!actions) return null
     const {startPrompts} = actions.jobs
     const hasPrd = !!docs.prd.trim()
     const hasApi = !!docs['api-docs'].trim()
+    const canGenerateDownstream = downstreamDelivery('api-docs').allowed
     const backTo: ViewState = doc === 'prompts' && hasApi ? 'review-api-docs' :
       doc !== 'prd' && hasPrd ? 'review-prd' : !imported && conversationId ? 'chatting' : 'form'
     const backLabel = { 'review-api-docs':'返回接口文档', 'review-prd':'返回 PRD', chatting:'返回对话', form:'返回入口' }[backTo]
+    function skipApiDocs() {
+      if (!window.confirm('跳过接口文档时，提示词可能缺少 API 细节。是否继续？')) return
+      return run(() => startPrompts(docs.prd, ''), () => {})
+    }
     function directPrompts() {
-      if (!imported && !window.confirm('跳过接口文档时，提示词可能缺少 API 细节。是否继续？')) return
-      return run(() => startPrompts(docs.prd, imported ? docs['api-docs'] : ''), () => {})
+      return run(() => startPrompts(docs.prd, docs['api-docs']), () => {})
     }
     return <div className="review-actions">
       <button disabled={documentBusy} onClick={() => navigateTo(backTo)}>{backLabel}</button>
-      <button disabled={documentBusy} onClick={() => prepareDocument(doc)}>重新生成</button>
+      <button disabled={documentBusy || (doc !== 'prd' && !canGenerateDownstream)} onClick={() => prepareDocument(doc)}>重新生成</button>
       <button className="quiet-action" disabled={documentBusy} onClick={() => patch({view:'done'})}>结束任务</button>
-      {doc === 'prd' && <>
-        <button className={imported ? undefined : 'skip-api'} disabled={documentBusy || !hasPrd} onClick={directPrompts}>
-          {imported ? '直接生成提示词' : '跳过接口文档，直接生成提示词'}</button>
-        <button className="primary" disabled={documentBusy || !hasPrd} onClick={() => prepareDocument('api-docs')}>
-          生成接口文档 <ArrowRight size={16}/></button></>}
-      {doc === 'api-docs' && <button className="primary" disabled={documentBusy || !hasPrd || !hasApi}
+      {doc === 'prd' && (session.entryMode === 'structured' ? (
+        <>
+          <button className="primary" disabled={documentBusy || !canGenerateDownstream} onClick={() => prepareDocument('api-docs')}>
+            生成接口文档 <ArrowRight size={16}/></button>
+          <button className="skip-api" disabled={documentBusy || !canGenerateDownstream} onClick={skipApiDocs}>
+            跳过接口文档，直接生成提示词</button>
+        </>
+      ) : (
+        <>
+          <button className="skip-api" disabled={documentBusy || !canGenerateDownstream} onClick={directPrompts}>
+            直接生成提示词</button>
+          <button className="primary" disabled={documentBusy || !canGenerateDownstream} onClick={() => prepareDocument('api-docs')}>
+            生成接口文档 <ArrowRight size={16}/></button>
+        </>
+      ))}
+      {doc === 'api-docs' && <button className="primary" disabled={documentBusy || !canGenerateDownstream || !hasApi}
         onClick={() => prepareDocument('prompts')}>生成提示词 <ArrowRight size={16}/></button>}
+      {doc !== 'prd' && hasPrd && !canGenerateDownstream && <small>请返回 PRD 确认需求基线后生成。</small>}
     </div>
   }
   return <div className="app">
@@ -231,23 +279,25 @@ export function Workbench({ session, setSession, actions, saveError }: {
     {review?.type === 'loading' && <div className="panel" role="status">{review.label}</div>}
     {review?.type === 'summary' && <SummaryDiffPanel before={session.summary ?? {}} after={review.candidate}
       onReject={() => setReview(null)} onConfirm={() => generate('prd', undefined, review)}/>}
-    {review?.type === 'references' && <section className="panel"><h2>确认接口参考资料</h2>
-      {review.hits.length ? review.hits.map(hit => <article className="rag-hit" key={hit.source}><h3>{hit.title}</h3><small>{hit.source}</small>
-        <p>{hit.content}</p></article>) : <p>未检索到相关资料，可以按当前 PRD 生成接口文档。</p>}
-      <footer><button onClick={() => setReview(null)}>取消</button>
-        <button className="primary" onClick={() => generate('api-docs', undefined, review)}>确认并生成接口文档</button></footer>
-    </section>}
-    {!review && view === 'chatting' && <section className="panel"><MessageList messages={pending ? [...messages, { role: 'user', content: pending }] : messages} streaming={streaming}/>
+    {!review && view === 'chatting' && <section className="panel">
+      {actions && structuredClarification && <ClarificationStage state={clarificationState}/>}
+      <MessageList messages={pending ? [...messages, { role: 'user', content: pending }] : messages} streaming={streaming}/>
       {busy && <small className="status" role="status"><LoaderCircle className="animate-spin" size={14}/> 正在回复</small>}
       <ClarificationWarnBanner usage={session.contextUsage}/>
       <ChatInput disabled={busy} onSend={chat}/>
-      {!busy && messages.some(m => m.role === 'assistant') && <footer><button className="primary" onClick={() => prepareDocument('prd')}>生成 PRD <ArrowRight size={16}/></button></footer>}
+      {(actions ? structuredClarification && !!session.summary : messages.some(m => m.role === 'assistant')) && <footer>
+        <button className={actions && clarificationState.needsConfirmBeforeGenerate ? 'clarification-warning' : 'primary'}
+          disabled={clarificationActionLocked} onClick={() => prepareDocument('prd')}>
+          {actions && clarificationState.needsConfirmBeforeGenerate && <AlertTriangle size={16} aria-hidden="true"/>}
+          生成 PRD <ArrowRight size={16}/></button></footer>}
     </section>}
     {!review && kind && documentEditor(kind, {title: titles[kind], content: docs[kind],
       streaming: jobs?.isJobRunning ? jobs.streamingContent : streaming, busy: documentBusy,
       optimizing: jobs?.isOptimizingJob, reconnecting: jobs?.reconnecting,
       progress: jobs?.isJobRunning && !jobs.isOptimizingJob ? {phase:jobs.phase, seconds:jobs.seconds, reconnecting:jobs.reconnecting, artifact:kind} : undefined,
       metrics: !documentBusy ? session.runSummaries?.[kind] : null,
+      onRegenerate: actions && kind !== 'prd' ? () => { void prepareDocument(kind) } : undefined,
+      canRegenerate: kind !== 'prd' && downstreamDelivery(kind).allowed,
       onEdit: content => edit(kind, content), onOptimize: instruction => generate(kind, instruction),
       actions: actions && view.startsWith('review-') ? reviewActions(kind) : <>
         {(!docs[kind].trim() || (actions && view.startsWith('review-'))) && <button disabled={documentBusy} onClick={() => prepareDocument(kind)}>重新生成</button>}

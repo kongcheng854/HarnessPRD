@@ -1,21 +1,20 @@
 import json
-import re
+import logging
 from contextlib import aclosing
 from copy import deepcopy
-from pathlib import Path
-
-import yaml
 from langchain_core.messages import HumanMessage, SystemMessage
+import yaml
 
 from ..core.requirements_schema import load_requirements_schema, validate_summary
+from . import api_docs_review_agent, prompts_review_agent
 from .conversation_service import _build_lc_messages
 from .llm_factory import stream_text
-from .llm_metrics import LlmStep
+from .llm_metrics import LlmStep, RunMetricsCollector
 from .prompts import (API_DOCS_GENERATION_PROMPT, OPTIMIZE_DOCUMENT_PROMPT_TEMPLATE,
                       PRD_GENERATION_PROMPT, PROMPTS_GENERATION_PROMPT)
+from .skill_loader import bundle_to_injected_meta, compose_prompt_sections, load_skill_bundle
 
-PRD_SKILL_DIR = Path(__file__).resolve().parents[2] / "skills" / "prd-generator"
-API_REFERENCES = Path(__file__).resolve().parents[1] / "core/api_references.json"
+logger = logging.getLogger(__name__)
 
 SYNC_PROMPT = """依据当前摘要与澄清访谈，仅回填用户明确补充、确认或纠正的内容。
 助手提出的建议只有得到用户明确确认后才可采用。有疑问保留原值。
@@ -24,43 +23,30 @@ SYNC_PROMPT = """依据当前摘要与澄清访谈，仅回填用户明确补充
 仅当用户明确要求取消某项时用 null 删除可选字段。没有变更返回 []。"""
 
 
-def _terms(text):
-    words = set(re.findall(r"[a-z0-9_]+", text.lower()))
-    for phrase in re.findall(r"[\u4e00-\u9fff]+", text):
-        words.update(phrase[i:i + 2] for i in range(len(phrase) - 1))
-    return words
+PROMPT_SECTION_ORDER = ("instructions", "reference", "template", "schema", "example")
 
 
 class SkillArtifactError(RuntimeError):
     pass
 
 
-def _load_skill_artifact(relative_path: str) -> str:
+def _load_skill_prompt(artifact: str, base_prompt: str) -> tuple[str, list[dict[str, object]]]:
     try:
-        content = (PRD_SKILL_DIR / relative_path).read_text(encoding="utf-8").strip()
-    except (OSError, UnicodeError) as exc:
-        raise SkillArtifactError(f"无法读取 PRD Skill 文件 {relative_path}，请检查项目文件。") from exc
-    if not content:
-        raise SkillArtifactError(f"PRD Skill 文件 {relative_path} 为空。")
-    return content
+        bundle = load_skill_bundle(artifact)
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        raise SkillArtifactError(f"{artifact} Skill 配置有误，请检查 config/skills.yaml 与 skill.yaml：{exc}") from exc
+    if not bundle.artifacts:
+        raise SkillArtifactError(f"{artifact} Skill 未加载到任何文件，请检查项目文件。")
+    grouped = compose_prompt_sections(bundle)
+    sections = [base_prompt]
+    sections.extend(grouped[role] for role in PROMPT_SECTION_ORDER if role in grouped)
+    sections.extend(text for role, text in grouped.items() if role not in PROMPT_SECTION_ORDER)
+    return "\n\n".join(sections), bundle_to_injected_meta(bundle)
 
 
 def _build_prd_prompt() -> str:
-    try:
-        manifest = yaml.safe_load(_load_skill_artifact("skill.yaml"))
-        instructions = manifest["instructions"]
-        references = manifest["references"]
-        if not isinstance(instructions, str) or not isinstance(references, list) or not all(
-            isinstance(path, str) for path in references
-        ):
-            raise ValueError("Invalid artifact list")
-    except (yaml.YAMLError, KeyError, TypeError, ValueError) as exc:
-        raise SkillArtifactError("PRD Skill 清单格式有误，请检查 skill.yaml。") from exc
-
-    sections = [PRD_GENERATION_PROMPT]
-    for path in [instructions, *references]:
-        sections.append(f"【{path}】\n{_load_skill_artifact(path)}")
-    return "\n\n".join(sections)
+    prompt, _ = _load_skill_prompt("prd", PRD_GENERATION_PROMPT)
+    return prompt
 
 
 class DocumentService:
@@ -116,41 +102,48 @@ class DocumentService:
         validate_summary(candidate, partial=not structured)
         return candidate
 
-    def retrieve_api_docs_rag_hits(self, prd, messages):
-        prd_terms = _terms(prd)
-        chat_terms = _terms(" ".join(m.content for m in messages))
-        scored = []
-        for reference in json.loads(API_REFERENCES.read_text(encoding="utf-8")):
-            terms = _terms(reference["title"] + " " + reference["keywords"])
-            score = 3 * len(terms & prd_terms) + len(terms & chat_terms)
-            if score:
-                scored.append((score, {k: reference[k] for k in ("source", "title", "content")}))
-        scored.sort(key=lambda item: item[0], reverse=True)
-        return [hit for _, hit in scored[:4]]
-
     async def generate_prd_stream(self, messages, requirements_summary=None):
         request = "请根据以上访谈生成 PRD。"
         if requirements_summary is not None:
             request += "以下是用户审核后的需求摘要；如与访谈冲突，以摘要为准。\n" + json.dumps(requirements_summary, ensure_ascii=False)
         inputs = [*_build_lc_messages(messages), HumanMessage(content=request)]
-        async with aclosing(self._generate(_build_prd_prompt(), inputs, LlmStep.PRD_WRITER)) as stream:
+        prompt, skills = _load_skill_prompt("prd", PRD_GENERATION_PROMPT)
+        run = RunMetricsCollector.current()
+        if run is not None:
+            run.injected_skills = skills
+        async with aclosing(self._generate(prompt, inputs, LlmStep.PRD_WRITER)) as stream:
             async for event in stream:
                 yield event
 
-    def generate_api_docs_stream(self, prd, rag_hits=()):
-        content = prd
-        if rag_hits:
-            references = [hit.model_dump() for hit in rag_hits]
-            content += "\n\n用户确认参考以下接口资料。仅采用适用于当前 PRD 的约定：\n" + json.dumps(references, ensure_ascii=False)
-        return self._generate(API_DOCS_GENERATION_PROMPT, [HumanMessage(content=content)], LlmStep.API_DOCS_GENERATE)
+    def generate_api_docs_stream(self, prd):
+        prompt, skills = _load_skill_prompt("api-docs", API_DOCS_GENERATION_PROMPT)
+        run = RunMetricsCollector.current()
+        if run is not None:
+            run.injected_skills = skills
+        return self._generate(prompt, [HumanMessage(content=prd)], LlmStep.API_DOCS_GENERATE)
 
     def generate_prompts_stream(self, prd):
-        return self._generate(PROMPTS_GENERATION_PROMPT, [HumanMessage(content=prd)], LlmStep.PROMPTS_GENERATE)
+        prompt, skills = _load_skill_prompt("prompts", PROMPTS_GENERATION_PROMPT)
+        run = RunMetricsCollector.current()
+        if run is not None:
+            run.injected_skills = skills
+        return self._generate(prompt, [HumanMessage(content=prd)], LlmStep.PROMPTS_GENERATE)
+
+    async def review_downstream(self, artifact, payload, content):
+        if artifact == "api-docs":
+            guidelines, _ = _load_skill_prompt("api-docs", API_DOCS_GENERATION_PROMPT)
+            return await api_docs_review_agent.review(payload.prd_content, content, guidelines)
+        return await prompts_review_agent.review(payload.prd_content, payload.api_docs_content, content)
 
     def optimize_document_stream(self, request):
-        template = OPTIMIZE_DOCUMENT_PROMPT_TEMPLATE.format(document_type=request.document_type)
+        artifact = "optimize-" + request.document_type
+        base = OPTIMIZE_DOCUMENT_PROMPT_TEMPLATE.format(document_type=request.document_type)
+        prompt, skills = _load_skill_prompt(artifact, base)
+        run = RunMetricsCollector.current()
+        if run is not None:
+            run.injected_skills = skills
         inputs = [HumanMessage(content=f"原文：\n{request.content}\n修改要求：\n{request.instruction}")]
-        return self._generate(template, inputs, LlmStep.DOCUMENT_OPTIMIZE)
+        return self._generate(prompt, inputs, LlmStep.DOCUMENT_OPTIMIZE)
 
 
 document_service = DocumentService()

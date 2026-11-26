@@ -52,6 +52,14 @@ button[aria-pressed=true] {background:#eaf5fb;border-color:#5199b8}
 .artifact-progress [data-status=active] {background:#175672;color:white;border-color:#175672;opacity:1}
 .artifact-progress [data-status=pending] {background:#f1f4f6;color:#637583;border-color:#cfd9df;opacity:1}
 .review-actions {justify-content:flex-end}
+.clarification-toolbar {display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid #e1e8ed}
+.clarification-toolbar>strong,.clarification-badge {display:inline-flex;align-items:center;gap:7px}
+.clarification-toolbar>strong {font-size:14px;color:#38586b}
+.clarification-badge {border-radius:999px;padding:6px 11px;font-size:12px;font-weight:650}
+.clarification-badge.ready {background:#eaf6ee;color:#205d3d}
+.clarification-badge.collecting,.clarification-badge.awaiting_user_reply {background:#fff4df;color:#80530b}
+button.clarification-warning {background:#fff4df;border-color:#dda83b;color:#704600}
+button.clarification-warning:hover {background:#ffebc2}
 .review-actions .skip-api,.review-actions .quiet-action {font-size:13px;border-color:transparent;color:#526979}
 .review-actions .skip-api {text-decoration:underline;text-underline-offset:3px}
 @media(max-width:620px){.entry-choices{grid-template-columns:1fr}.entry-card{min-height:0;padding:18px 40px 18px 18px}}

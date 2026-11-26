@@ -42,20 +42,6 @@ class DocumentRequest(BaseModel):
     prd: Text
 
 
-class RagHit(BaseModel):
-    source: Text
-    title: Text
-    content: Text
-
-
-class RetrievalRequest(DocumentRequest):
-    messages: list[Message]
-
-
-class ApiDocsRequest(DocumentRequest):
-    rag_hits: list[RagHit] = Field(default_factory=list)
-
-
 class OptimizeRequest(BaseModel):
     document_type: Literal["prd", "api-docs", "prompts"]
     content: Text
@@ -80,7 +66,6 @@ class JobPayload(BaseModel):
     conversation_messages: list[Message] = Field(default_factory=list)
     prd_content: Text | None = None
     api_docs_content: str = ""
-    rag_hits: list[RagHit] = Field(default_factory=list)
 
 
 class OptimizeJobPayload(BaseModel):
@@ -110,8 +95,6 @@ class CreateJobRequest(BaseModel):
             return self
         if not isinstance(self.payload, JobPayload):
             raise ValueError("生成任务需要生成资料")
-        if self.artifact == "prd" and self.payload.requirements_summary is None:
-            raise ValueError("PRD 任务需要 requirements_summary")
         if self.artifact != "prd" and not self.payload.prd_content:
             raise ValueError("生成任务需要 prd_content")
         return self

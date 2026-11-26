@@ -14,9 +14,9 @@ from ..services.document_service import SkillArtifactError, document_service
 from ..services.llm_factory import MissingKeyError
 from ..services.llm_metrics import RunMetricsCollector
 from ..services.token_estimator import BudgetExceededError
-from .schemas import (ApiDocsRequest, ContinueRequest, DocumentRequest, OptimizeRequest,
-                      PrdRequest, QuestionsConfig, RagHit, RetrievalRequest, StartRequest,
-                      StructuredStartRequest, SummarySyncRequest)
+from .schemas import (ContinueRequest, DocumentRequest, OptimizeRequest,
+                      PrdRequest, QuestionsConfig, StartRequest, StructuredStartRequest,
+                      SummarySyncRequest)
 
 router = APIRouter(prefix="/api/conversation", tags=["conversation"])
 SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
@@ -110,19 +110,14 @@ async def sync_summary(request: SummarySyncRequest):
     return {"requirements_summary": summary, "run_summary": asdict(run.finish())}
 
 
-@router.post("/retrieve-api-docs-rag", response_model=list[RagHit])
-def retrieve_api_docs_rag(request: RetrievalRequest):
-    return document_service.retrieve_api_docs_rag_hits(request.prd, request.messages)
-
-
 @router.post("/generate-prd-stream")
 def prd(request: PrdRequest):
     return _make_sse_generator(document_service.generate_prd_stream(request.messages, request.requirements_summary), "generate_prd")
 
 
 @router.post("/generate-api-docs-stream")
-def api_docs(request: ApiDocsRequest):
-    return _make_sse_generator(document_service.generate_api_docs_stream(request.prd, request.rag_hits), "generate_api_docs")
+def api_docs(request: DocumentRequest):
+    return _make_sse_generator(document_service.generate_api_docs_stream(request.prd), "generate_api_docs")
 
 
 @router.post("/generate-prompts-stream")
