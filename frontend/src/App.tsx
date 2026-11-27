@@ -274,7 +274,8 @@ export function Workbench({ session, setSession, actions, saveError }: {
     {showForm && subView === 'structured' && actions && conversationId && messages.length > 0 &&
       <button className="disclosure" disabled={busy} onClick={() => patch({view:'chatting'})}>继续已有澄清对话 →</button>}
     {showForm && subView === 'structured' && (schema ? <fieldset disabled={busy}><AppV2 schema={schema} values={form}
-      onChange={values => patch({form:values})} onSubmit={chat}/></fieldset> :
+      onChange={values => patch({form:values})} onSubmit={chat}
+      onGenerateFrozen={actions ? (summary, caseId, button) => run(() => actions.jobs.startFrozenPrd(summary, caseId, button), () => {}) : undefined}/></fieldset> :
       <div className="panel">{configError ? <>表单加载失败，请检查后端连接。 <button onClick={() => setAttempt(n => n+1)}>重试</button></> : '正在加载表单…'}</div>)}
     {review?.type === 'loading' && <div className="panel" role="status">{review.label}</div>}
     {review?.type === 'summary' && <SummaryDiffPanel before={session.summary ?? {}} after={review.candidate}

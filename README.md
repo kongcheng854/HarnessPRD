@@ -71,6 +71,26 @@ npm run dev
 | `GET /api/session/{id}/documents/{doc_type}/versions` | 查询版本列表。追加 `/{version_id}` 可读取该版正文与元数据 |
 | `GET /api/session/{id}/export` | 下载当前方案的 ZIP 交付包 |
 
+## 固定案例评测
+
+V2 结构化表单支持四个固定案例的一键回填与跳过澄清生成。案例来源、待核对项和覆盖率计算方式见[固定案例与覆盖率](evals/README.md)。
+
+每个案例计划手动运行两轮。开跑时登记批次和 attempt，结束时用同次导出的 ZIP 核对输入、正文及上游版本。命令与失败归档示例见[平台手动采集指南](evals/COLLECTION.md)。
+
+归档后，用 `check` 核对原稿，再用 `judge` 按冻结需求逐条评审。最新自动成绩保存在 `evals/reviews/<批次>.<attempt>.auto.json`，人工抽查另存为 `*.human.json`。评审模型配置、人工校准和可选的 LangSmith 发布见[离线评审指南](backend/evaluation/README.md)。
+
+### 生成与阅读覆盖率报告
+
+在仓库根目录运行以下 PowerShell 命令，将示例中的批次和 attempt ID 换成本地台账中的值。省略 `--attempt-id` 时汇总整个批次，重复指定该参数可选取同一轮的多次运行。报告从本地台账和自动成绩生成，可离线重复运行。
+
+```powershell
+backend/.venv/Scripts/python -m backend.evaluation report --collection-id manual-001 --stem manual-001-r1 --attempt-id approval-001-r1-a01 --attempt-id community-001-r1-a01
+```
+
+- **查看成绩**：打开 `evals/reports/<stem>.md` 查看逐包结果，或读取同名 `.json` 做分析。单包覆盖率等于完整覆盖的需求数除以适用需求总数。批次主指标 `mean_coverage` 对有成绩的包等权取平均。
+- **核对分母**：逐条判定完整且有覆盖率的 `needs_review` 包计入均值。评审失败、缺少汇总或交付包不一致时，可在报告中查看排除原因。没有有效包时，Markdown 显示 `N/A`，JSON 保留 `null`。
+- **追溯缺口**：硬冲突、部分覆盖和缺失需求按类别列出，可沿链接核对原稿引文和本次报告采用的自动评审记录。
+
 ## 本地验证
 
 安装依赖后，在仓库根目录运行后端测试、前端测试和生产构建。

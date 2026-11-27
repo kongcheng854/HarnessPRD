@@ -61,7 +61,14 @@ class QuestionsConfig(BaseModel):
     advanced_questions: list[Question]
 
 
+class EvaluationCase(BaseModel):
+    case_id: Text
+    case_version: Text
+    fill_button: Text
+
+
 class JobPayload(BaseModel):
+    evaluation_case: EvaluationCase | None = None
     requirements_summary: dict | None = None
     conversation_messages: list[Message] = Field(default_factory=list)
     prd_content: Text | None = None
